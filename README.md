@@ -8,14 +8,17 @@ A fast, type-safe **Unofficial Sukebei Nyaa torrent API** built with TypeScript,
 
 - 🔍 **Full-text search** across all Sukebei Nyaa categories using flexible query parameters
 - 📂 **Category & sub-category browsing** — Art, Real Life
-- 🧑 **User uploads** — fetch all torrents uploaded by a specific user
-- 🆔 **Lookup by ID** — retrieve detailed torrent info for any Sukebei Nyaa entry
+- 🧑 **User uploads** — fetch torrents uploaded by a specific user, optionally filtered by category
+- 🆔 **Lookup by ID or info hash** — detailed torrent info, file list, comments, and trackers
 - 🔃 **Sorting & filtering** — sort by size, seeders, leechers, date, downloads, or comments; filter out remakes or show trusted-only
-- 📄 **Pagination** — navigate through any result set page by page
+- 🏷️ **Trusted / remake / hidden flags**, comment counts, category IDs, Unix timestamps, and size in bytes on every listing row
+- 📄 **Pagination** — `p` query, `X-Page` / `X-Has-Next` headers, and an optional JSON envelope
+- 📡 **RSS as JSON** — Sukebei’s native RSS feed, including trusted/remake and info hash
 - 🌐 **CORS-enabled** — ready for use from any browser or frontend application
 - ⚡ **Edge-deployed** — runs on Cloudflare Workers or Deno Deploy for low-latency responses worldwide
 - 🛡️ **Null-safe scraping** — hardened against missing DOM elements, magnet-only rows, and unexpected markup changes
 - 🔁 **Mirror fallback** — tries `sukebei.nyaa.si` first, then `sukebei.nyaa.land` if the primary host is down or blocked
+- 🩺 **Health, categories, and OpenAPI** — `/health`, `/categories`, `/openapi.json`, `/docs`
 
 ## Usage
 
@@ -34,6 +37,11 @@ A fast, type-safe **Unofficial Sukebei Nyaa torrent API** built with TypeScript,
 | `p` **(Optional)** | Page number                                           |
 | `f` **(Optional)** | Filter option (`filter` is accepted as an alias)      |
 | `o` **(Optional)** | Order of sorting. Defaults to **_Descending order_**. |
+| `c` **(Optional)** | Category id (`1_2`) or path (`art/doujinshi`). Used on `/search`, `/rss`, and `/user/{username}`. |
+| `u` **(Optional)** | Uploader filter on `/rss`. |
+| `magnets` **(Optional)** | On `/rss`, prefer magnet links (`m` is accepted as an alias). |
+| `envelope` **(Optional)** | `1` wraps list results as `{ torrents, page, perPage, hasNext, total, origin }`. |
+| `flat` **(Optional)** | `1` forces `/search` to return a raw array. |
 
 #### Endpoints
 
@@ -43,7 +51,18 @@ A fast, type-safe **Unofficial Sukebei Nyaa torrent API** built with TypeScript,
 | Art          | `/art`            |
 | Real Life    | `/real_life`      |
 | ID           | `/id/:id`         |
+| ID files     | `/id/{id}/files`  |
+| ID comments  | `/id/{id}/comments` |
+| ID trackers  | `/id/{id}/trackers` |
+| Info hash    | `/hash/{hash}`    |
+| Batch IDs    | `/ids?ids=1,2,3`  |
 | User         | `/user/:username` |
+| User profile | `/user/{username}/profile` |
+| Search       | `/search`         |
+| RSS JSON     | `/rss`            |
+| Categories   | `/categories`     |
+| Health       | `/health`         |
+| OpenAPI      | `/openapi.json`, `/docs` |
 
 #### Sub-Categories
 
@@ -61,11 +80,28 @@ Sub-categories are nested under their parent: `/{category}/{sub_category}`.
 | Sort (`s`)    | `size`, `seeders`, `leechers`, `date`, `downloads`, `comments`  |
 | Order (`o`)   | `asc`, `desc`                                                   |
 
+- List endpoints (`/art`, `/user/{username}`, …) still return a **JSON array** of torrents so existing clients keep working. Pagination is also sent as `X-Page`, `X-Per-Page`, `X-Has-Next`, `X-Total`, and `X-Origin`. Pass `envelope=1` for a wrapped object. `/search` uses the envelope by default.
+
+- Error responses are JSON: `{ "error": "Invalid ID", "status": 400 }`. Unknown subcategories now return **400** instead of silently falling back to the parent category.
+
 ### Example Requests
 
 #### Lookup by ID
 ```
 /id/{id}
+/id/{id}/files
+/id/{id}/comments
+/id/{id}/trackers
+/hash/{infoHash}
+/ids?ids=1,2,3
+```
+
+#### Search
+```
+/search?q={search_query}
+/search?q={search_query}&c=art/doujinshi&s=seeders&o=desc&p=2&f=2
+/rss?q={search_query}&c=1_2&f=2&magnets=1
+/rss?u={username}
 ```
 
 #### Browse a category
@@ -83,10 +119,29 @@ Sub-categories are nested under their parent: `/{category}/{sub_category}`.
 #### User uploads
 ```
 /user/{username}
+/user/{username}/profile
+/user/{username}?q={search_query}
+/user/{username}?c=art/doujinshi
 /user/{username}?q={search_query}&s={sort}&p={page}&o={order}&f={filter}
 ```
 
-Invalid IDs, usernames, and categories return **400**. Missing torrents return **404**. Upstream Sukebei failures return **502**.
+### Listing fields
+
+Each torrent object includes the original fields plus:
+
+| Field | Meaning |
+| --- | --- |
+| `categoryId` | Sukebei `c=` id (`1_2`) |
+| `uploadedTimestamp` | Unix seconds when present on the page |
+| `commentCount` | Comment badge on listing rows |
+| `sizeBytes` | Parsed size using binary units (`GiB` = 1024³) |
+| `infoHash` | From the magnet `xt=urn:btih:` value, or RSS |
+| `trusted` | Green / trusted row |
+| `remake` | Red / remake row |
+| `hidden` | Hidden row |
+| `deleted` | Deleted row |
+
+`/id/{id}` also returns `information`, `submitter`, `trackers`, `files`, `fileTree`, `fileListStatus`, comment ids/timestamps/edited/uploader flags, and `origin`.
 
 ## Development
 
@@ -113,6 +168,22 @@ npm run typecheck
 ```
 
 ## Changelog
+
+### 1.2.0 — Sukebei feature coverage
+
+- **Listing flags and extra fields** — trusted/remake/hidden/deleted, comment count, category id, Unix timestamp, size in bytes, and info hash.
+- **Detail pages** — file list (tree + flat), information URL, submitter profile/trusted/anonymous, magnet trackers, richer comments.
+- **Pagination** — `X-Page` / `X-Has-Next` headers on every list; `envelope=1` wraps `{ torrents, page, perPage, hasNext, total, origin }`.
+- **`/search`** — category-agnostic search; envelope by default (`flat=1` for a raw array). `c` accepts `1_2` or `art/doujinshi`.
+- **`/rss`** — Sukebei RSS parsed to JSON; `magnets=1` (or `m`) prefers magnet links; `u` filters by uploader.
+- **`/hash/{hash}`** — 40-char hex or 32-char base32 info-hash lookup.
+- **`/ids?ids=`** — batch detail fetch, max 10 ids, per-id success/error.
+- **`/id/{id}/files|comments|trackers`** — sub-resources of the view page.
+- **User pages** — `c=` category filter; `/user/{username}/profile` for public username/level/upload count.
+- **Invalid subcategory** — `/art/nope` is **400**, not silent fallback to all art.
+- **JSON errors** — `{ "error", "status" }` instead of plain text.
+- **`/health`**, **`/categories`**, **`/openapi.json`**, **`/docs`**.
+- List endpoints still return a torrent **array** unless `envelope=1` is set.
 
 ### Reliability & scrape fixes
 
