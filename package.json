@@ -27,7 +27,7 @@
   "devDependencies": {
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",
-    "wrangler": "^4.124.0"
+    "wrangler": "^4.127.0"
   },
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
