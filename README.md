@@ -17,7 +17,7 @@ A fast, type-safe **Unofficial Sukebei Nyaa torrent API** built with TypeScript,
 - 🌐 **CORS-enabled** — ready for use from any browser or frontend application
 - ⚡ **Edge-deployed** — runs on Cloudflare Workers or Deno Deploy for low-latency responses worldwide
 - 🛡️ **Null-safe scraping** — hardened against missing DOM elements, magnet-only rows, and unexpected markup changes
-- 🔁 **Mirror fallback** — tries `sukebei.nyaa.si` first, then `sukebei.nyaa.land` if the primary host is down or blocked
+- 🔁 **Mirror fallback** — tries `sukebei.nyaa.si` first, then `sukebei.nyaa.mom` if the primary host is down or blocked
 - 🩺 **Health, categories, and OpenAPI** — `/health`, `/categories`, `/openapi.json`, `/docs`
 
 ## Usage
@@ -188,7 +188,7 @@ npm run typecheck
 ### Reliability & scrape fixes
 
 - **Cloudflare Workers no longer crash on boot** — `src/index.ts` now exports the Hono app for Workers and only calls `Deno.serve()` when the Deno runtime is present.
-- **Mirror fallback** — requests try `sukebei.nyaa.si`, then `sukebei.nyaa.land`, and skip Cloudflare challenge pages instead of returning empty results.
+- **Mirror fallback** — requests try `sukebei.nyaa.si`, then `sukebei.nyaa.mom`, and skip Cloudflare challenge pages instead of returning empty results. Listing scrapes accept both relative `/view/` links and absolute mirror URLs.
 - **Listing scrape no longer depends on brittle column indexes** — download/magnet links are selected by `href`, and size/date/seeders are read from the last cells so comment columns cannot shift fields.
 - **Magnet-only torrents** — rows without a `.torrent` file now keep the magnet link instead of stuffing it into `file`.
 - **Comment timestamps and avatars** — timestamps come from `small[data-timestamp]`; relative avatar URLs are resolved against the active mirror.

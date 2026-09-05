@@ -195,8 +195,8 @@ const RSS_XML = `<?xml version="1.0"?>
     <description>RSS Feed for "test"</description>
     <item>
       <title>Commented Torrent</title>
-      <link>https://sukebei.nyaa.land/download/4123450.torrent</link>
-      <guid isPermaLink="true">https://sukebei.nyaa.land/view/4123450</guid>
+      <link>https://sukebei.nyaa.mom/download/4123450.torrent</link>
+      <guid isPermaLink="true">https://sukebei.nyaa.mom/view/4123450</guid>
       <pubDate>Tue, 18 Aug 2026 13:32:00 -0000</pubDate>
       <nyaa:seeders>70</nyaa:seeders>
       <nyaa:leechers>2</nyaa:leechers>
@@ -213,15 +213,15 @@ const RSS_XML = `<?xml version="1.0"?>
 </rss>`;
 
 test("parseTorrentList maps listing rows including magnet-only torrents", () => {
-  const torrents = parseTorrentList(LISTING_HTML, "https://sukebei.nyaa.land");
+  const torrents = parseTorrentList(LISTING_HTML, "https://sukebei.nyaa.mom");
 
   assert.equal(torrents.length, 3);
 
   assert.deepEqual(torrents[0], {
     id: 4123456,
     title: "Sample Doujin",
-    link: "https://sukebei.nyaa.land/view/4123456",
-    file: "https://sukebei.nyaa.land/download/4123456.torrent",
+    link: "https://sukebei.nyaa.mom/view/4123456",
+    file: "https://sukebei.nyaa.mom/download/4123456.torrent",
     magnet: "magnet:?xt=urn:btih:abc123&dn=Sample",
     category: "Art - Doujinshi",
     categoryId: "1_2",
@@ -253,8 +253,40 @@ test("parseTorrentList maps listing rows including magnet-only torrents", () => 
   assert.equal(torrents[2].trusted, false);
 });
 
+test("parseTorrentList accepts absolute mirror listing hrefs", () => {
+  const html = `
+<table class="table torrent-list">
+  <tbody>
+    <tr class="default">
+      <td><a href="https://sukebei.nyaa.mom?c=2_2" title="Real Life - Videos"><img></a></td>
+      <td colspan="2">
+        <a href="https://sukebei.nyaa.mom/view/4703377" title="Absolute Row">Absolute Row</a>
+      </td>
+      <td class="text-center">
+        <a href="https://sukebei.nyaa.si/download/4703377.torrent"></a>
+        <a href="magnet:?xt=urn:btih:dab64c35e31ca736f7680e67da1d33ded7067b5e"></a>
+      </td>
+      <td class="text-center">8.6 GiB</td>
+      <td class="text-center" data-timestamp="1788600000">2026-09-05 08:50</td>
+      <td class="text-center">1</td>
+      <td class="text-center">9</td>
+      <td class="text-center">0</td>
+    </tr>
+  </tbody>
+</table>
+`;
+  const torrents = parseTorrentList(html, "https://sukebei.nyaa.mom");
+  assert.equal(torrents.length, 1);
+  assert.equal(torrents[0].id, 4703377);
+  assert.equal(torrents[0].title, "Absolute Row");
+  assert.equal(torrents[0].link, "https://sukebei.nyaa.mom/view/4703377");
+  assert.equal(torrents[0].file, "https://sukebei.nyaa.si/download/4703377.torrent");
+  assert.equal(torrents[0].categoryId, "2_2");
+  assert.equal(torrents[0].infoHash, "dab64c35e31ca736f7680e67da1d33ded7067b5e");
+});
+
 test("parseListing reads pagination metadata", () => {
-  const listing = parseListing(LISTING_HTML, "https://sukebei.nyaa.land", 1);
+  const listing = parseListing(LISTING_HTML, "https://sukebei.nyaa.mom", 1);
   assert.equal(listing.pagination.page, 1);
   assert.equal(listing.pagination.perPage, 75);
   assert.equal(listing.pagination.hasNext, true);
@@ -269,7 +301,7 @@ test("parsePagination treats a short last page as terminal", () => {
 });
 
 test("parseFileInfo reads labeled fields, hash, files, and comments", () => {
-  const file = parseFileInfo(VIEW_HTML, "https://sukebei.nyaa.land", 4123450);
+  const file = parseFileInfo(VIEW_HTML, "https://sukebei.nyaa.mom", 4123450);
 
   assert.ok(file);
   assert.equal(file.torrent.title, "[Example] Doujinshi 08");
@@ -281,7 +313,7 @@ test("parseFileInfo reads labeled fields, hash, files, and comments", () => {
   assert.equal(file.torrent.leechers, 2);
   assert.equal(file.torrent.size, "1.3 GiB");
   assert.equal(file.torrent.completed, 0);
-  assert.equal(file.torrent.file, "https://sukebei.nyaa.land/download/4123450.torrent");
+  assert.equal(file.torrent.file, "https://sukebei.nyaa.mom/download/4123450.torrent");
   assert.equal(
     file.torrent.magnet,
     "magnet:?xt=urn:btih:e386a18cbd5525b5515a3b118e365033ec190465&dn=Example&tr=http://sukebei.tracker.wf:7777/announce"
@@ -290,7 +322,7 @@ test("parseFileInfo reads labeled fields, hash, files, and comments", () => {
   assert.equal(file.torrent.commentCount, 1);
   assert.equal(file.submittedBy, "uploader");
   assert.equal(file.submitter.trusted, true);
-  assert.equal(file.submitter.url, "https://sukebei.nyaa.land/user/uploader");
+  assert.equal(file.submitter.url, "https://sukebei.nyaa.mom/user/uploader");
   assert.equal(file.information, "https://example.invalid/");
   assert.equal(file.infoHash, "e386a18cbd5525b5515a3b118e365033ec190465");
   assert.deepEqual(file.trackers, ["http://sukebei.tracker.wf:7777/announce"]);
@@ -307,10 +339,10 @@ test("parseFileInfo reads labeled fields, hash, files, and comments", () => {
   assert.equal(file.commentInfo.comments[0].id, 1);
   assert.equal(file.commentInfo.comments[0].edited, true);
   assert.equal(file.commentInfo.comments[0].uploader, true);
-  assert.equal(file.commentInfo.comments[0].profile, "https://sukebei.nyaa.land/user/alice");
+  assert.equal(file.commentInfo.comments[0].profile, "https://sukebei.nyaa.mom/user/alice");
   assert.equal(
     file.commentInfo.comments[0].image,
-    "https://sukebei.nyaa.land/static/img/avatar/default.png"
+    "https://sukebei.nyaa.mom/static/img/avatar/default.png"
   );
 });
 
@@ -330,7 +362,7 @@ test("flattenFileTree walks nested folders", () => {
 });
 
 test("parseRss maps namespaced nyaa fields", () => {
-  const torrents = parseRss(RSS_XML, "https://sukebei.nyaa.land");
+  const torrents = parseRss(RSS_XML, "https://sukebei.nyaa.mom");
   assert.equal(torrents.length, 1);
   assert.equal(torrents[0].id, 4123450);
   assert.equal(torrents[0].title, "Commented Torrent");
@@ -340,7 +372,7 @@ test("parseRss maps namespaced nyaa fields", () => {
   assert.equal(torrents[0].categoryId, "2_2");
   assert.equal(torrents[0].trusted, true);
   assert.equal(torrents[0].remake, false);
-  assert.equal(torrents[0].file, "https://sukebei.nyaa.land/download/4123450.torrent");
+  assert.equal(torrents[0].file, "https://sukebei.nyaa.mom/download/4123450.torrent");
   assert.equal(
     torrents[0].magnet,
     "magnet:?xt=urn:btih:e386a18cbd5525b5515a3b118e365033ec190465"
@@ -348,7 +380,7 @@ test("parseRss maps namespaced nyaa fields", () => {
 });
 
 test("parseUserProfile reads trusted heading and upload count", () => {
-  const user = parseUserProfile(USER_HTML, "https://sukebei.nyaa.land", "uploader");
+  const user = parseUserProfile(USER_HTML, "https://sukebei.nyaa.mom", "uploader");
   assert.ok(user);
   assert.equal(user.username, "uploader");
   assert.equal(user.trusted, true);
@@ -461,16 +493,18 @@ test("wantsEnvelope is opt-in on category routes", () => {
 
 test("url, magnet, size, and number helpers", () => {
   assert.equal(
-    resolveUrl("https://sukebei.nyaa.land", "/view/1"),
-    "https://sukebei.nyaa.land/view/1"
+    resolveUrl("https://sukebei.nyaa.mom", "/view/1"),
+    "https://sukebei.nyaa.mom/view/1"
   );
-  assert.equal(resolveUrl("https://sukebei.nyaa.land", "magnet:?xt=1"), "magnet:?xt=1");
-  assert.equal(resolveUrl("https://sukebei.nyaa.land", undefined), "");
+  assert.equal(resolveUrl("https://sukebei.nyaa.mom", "magnet:?xt=1"), "magnet:?xt=1");
+  assert.equal(resolveUrl("https://sukebei.nyaa.mom", undefined), "");
   assert.equal(toCount("1,109"), 1109);
   assert.equal(toCount(""), 0);
   assert.equal(extractViewId("/view/4123450#comments"), 4123450);
+  assert.equal(extractViewId("https://sukebei.nyaa.mom/view/4703377"), 4703377);
   assert.equal(extractViewId("nope"), 0);
   assert.equal(extractCategoryId("/?c=1_2"), "1_2");
+  assert.equal(extractCategoryId("https://sukebei.nyaa.mom?c=2_2"), "2_2");
   assert.equal(extractInfoHash("magnet:?xt=urn:btih:abc123&dn=x"), "abc123");
   assert.equal(parseSizeBytes("1.3 GiB"), Math.round(1.3 * 1024 ** 3));
   assert.equal(parseSizeBytes("12.0 MiB"), Math.round(12 * 1024 ** 2));

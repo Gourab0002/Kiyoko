@@ -1,7 +1,7 @@
 export class Constants {
   static Version: string = "1.2.0";
   static SukebeiBaseUrl: string = "https://sukebei.nyaa.si";
-  static SukebeiAltUrl: string = "https://sukebei.nyaa.land";
+  static SukebeiAltUrl: string = "https://sukebei.nyaa.mom";
   static UserAgent: string =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
   static FetchTimeoutMs: number = 10000;
@@ -13,7 +13,7 @@ export class Constants {
 
   static SukebeiMirrors: string[] = [
     "https://sukebei.nyaa.si",
-    "https://sukebei.nyaa.land",
+    "https://sukebei.nyaa.mom",
   ];
 
   static SukebeiEndpoints: Record<string, Record<string, string>> = {

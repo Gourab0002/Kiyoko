@@ -24,6 +24,18 @@ import {
 type CheerioRoot = ReturnType<typeof cheerio.load>;
 type CheerioSelection = ReturnType<CheerioRoot>;
 
+function hrefIncludes(href: string | undefined, path: string): boolean {
+  return typeof href === "string" && href.includes(path);
+}
+
+function anchorsWithPath(
+  $: CheerioRoot,
+  scope: CheerioSelection,
+  path: string
+): CheerioSelection {
+  return scope.find("a").filter((_, el) => hrefIncludes($(el).attr("href"), path));
+}
+
 const emptySubmitter: Submitter = {
   name: "",
   url: "",
@@ -128,7 +140,7 @@ export function parseTorrentList(html: string, origin: string): Torrent[] {
 
   rows.each((_, selection) => {
     const row = $(selection);
-    const titleLink = row.find('a[href^="/view/"]').not(".comments").last();
+    const titleLink = anchorsWithPath($, row, "/view/").not(".comments").last();
     const torrentPath = titleLink.attr("href") ?? "";
     const id = extractViewId(torrentPath);
 
@@ -136,7 +148,7 @@ export function parseTorrentList(html: string, origin: string): Torrent[] {
       return;
     }
 
-    const downloadHref = row.find('a[href^="/download/"]').attr("href");
+    const downloadHref = anchorsWithPath($, row, "/download/").attr("href");
     const magnetHref = row.find('a[href^="magnet:"]').attr("href");
     const categoryLink = row.find("td:first-child a").first();
     const cells = row.find("td");
@@ -407,7 +419,7 @@ function parseComments($: CheerioRoot, container: CheerioSelection, origin: stri
     const panel = $(selection);
     const element = panel.find("div.panel-body");
     const avatar = element.find("img.avatar").attr("src");
-    const userLink = element.find('a[href^="/user/"]').first();
+    const userLink = anchorsWithPath($, element, "/user/").first();
     const timestampEl = element.find("small[data-timestamp]").first();
     const idAttr = panel.attr("id") ?? "";
     const parsedId = toCount(idAttr.replace(/^com-/i, ""));
@@ -469,7 +481,7 @@ export function parseFileInfo(
     return null;
   }
 
-  const downloadHref = container.find('a[href^="/download/"]').attr("href");
+  const downloadHref = anchorsWithPath($, container, "/download/").attr("href");
   const magnetHref = container.find('a[href^="magnet:"]').attr("href") ?? "";
   const magnet = parseMagnet(magnetHref);
   const infoHash =
