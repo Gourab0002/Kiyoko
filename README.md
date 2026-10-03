@@ -19,6 +19,10 @@ A fast, type-safe **Unofficial Sukebei Nyaa torrent API** built with TypeScript,
 - 🛡️ **Null-safe scraping** — hardened against missing DOM elements, magnet-only rows, and unexpected markup changes
 - 🔁 **Mirror fallback** — tries `sukebei.nyaa.si` first, then `sukebei.nyaa.mom` if the primary host is down or blocked
 - 🩺 **Health, categories, and OpenAPI** — `/health`, `/categories`, `/openapi.json`, `/docs`
+- 🗄️ **Edge cache** — listing and detail pages are cached in the Workers cache
+- 🚦 **Rate limit** — 60 requests a minute per client address on upstream routes, with `Retry-After` on 429, 502, and 503
+- 📝 **Formatted text** — descriptions and comments include plain text and sanitized HTML
+- 📦 **Long file lists** — when Sukebei hides the file list, Kiyoko reads names from the public `.torrent`
 
 ## Usage
 
@@ -38,6 +42,7 @@ A fast, type-safe **Unofficial Sukebei Nyaa torrent API** built with TypeScript,
 | `f` **(Optional)** | Filter option (`filter` is accepted as an alias)      |
 | `o` **(Optional)** | Order of sorting. Defaults to **_Descending order_**. |
 | `c` **(Optional)** | Category id (`1_2`) or path (`art/doujinshi`). Used on `/search`, `/rss`, and `/user/{username}`. |
+| `exclude` **(Optional)** | Words to leave out of the search. Max 200 characters. |
 | `u` **(Optional)** | Uploader filter on `/rss`. |
 | `magnets` **(Optional)** | On `/rss`, prefer magnet links (`m` is accepted as an alias). |
 | `envelope` **(Optional)** | `1` wraps list results as `{ torrents, page, perPage, hasNext, total, origin }`. |
@@ -141,7 +146,13 @@ Each torrent object includes the original fields plus:
 | `hidden` | Hidden row |
 | `deleted` | Deleted row |
 
-`/id/{id}` also returns `information`, `submitter`, `trackers`, `files`, `fileTree`, `fileListStatus`, comment ids/timestamps/edited/uploader flags, and `origin`.
+`/id/{id}` also returns `information`, `submitter`, `trackers`, `files`, `fileTree`, `fileListStatus`, comment ids/timestamps/edited/uploader flags, and `origin`. `description` and each comment `content` are plain text. `descriptionHtml` and `contentHtml` are sanitized HTML; treat them as untrusted when rendering. If the page says the file list is too long, Kiyoko fills `files` from the public `.torrent` (up to 2 MB).
+
+Unknown `s`, `o`, and `f` values return **400**. `p` above 1000 returns **400**. Queries longer than 200 characters return **400**.
+
+List routes still return a JSON array unless `envelope=1` (`/search` is the exception and returns the envelope). `X-Kiyoko-List-Shape` is `array` or `envelope`. A later 2.0 will return the envelope only.
+
+Upstream routes allow 60 requests per minute per client address, counted separately in each Cloudflare location. `/`, `/health`, `/docs`, `/openapi.json`, and `/categories` are not limited. **429**, **502**, and **503** include `Retry-After`.
 
 ## Development
 
@@ -168,6 +179,23 @@ npm run typecheck
 ```
 
 ## Changelog
+
+### 1.3.0 — Cache, limits, and richer details
+
+- **Pagination** — a full last page with Next disabled reports `X-Has-Next: 0`. The 75-row guess is used only when the page has no pager.
+- **`/hash/{hash}`** — falls back to the search row with the same info hash when Sukebei does not redirect to the view page. Base32 hashes match the hex hash on the row.
+- **Strict query values** — unknown `s`, `o`, and `f` return 400. `p` above 1000, queries over 200 characters, and ids longer than 10 digits return 400.
+- **`exclude`** — passed through to Sukebei and documented.
+- **RSS** — `file` stays `{origin}/download/{id}.torrent` when the id is known, including when `magnets=1`. A synthesized magnet includes the display name. A magnet link from the feed is kept, trackers included.
+- **Missing users** — `/user/{username}/profile` returns 404 when the public heading is absent.
+- **Worker cache** — successful pages and 404s are stored in the Workers cache (60s listings, 180s details, 15s health probes).
+- **Shorter primary timeout** — the first mirror waits 4 seconds, then the fallback mirror gets 10 seconds.
+- **Rate limit** — `RATE_LIMITER` allows 60 requests per 60 seconds per client address. Batch detail fetches run 3 at a time.
+- **`Retry-After`** on 429, 502, and 503. Workers logs are enabled.
+- **Descriptions and comments** — plain text keeps line breaks. `descriptionHtml` and `contentHtml` are sanitized HTML.
+- **Long file lists** — `too_many` pages read file names from the public `.torrent` when it is under 2 MB.
+- **`/docs`** — rendered from the OpenAPI spec in the Worker, with component schemas. No external script host.
+- **`X-Kiyoko-List-Shape`** — `array` or `envelope`. Response bodies are unchanged in 1.x.
 
 ### 1.2.0 — Sukebei feature coverage
 

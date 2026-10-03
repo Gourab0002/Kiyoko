@@ -53,6 +53,7 @@ export type FileListStatus = "ok" | "unavailable" | "too_many";
 export interface File {
   torrent: Torrent;
   description: string;
+  descriptionHtml: string;
   submittedBy: string;
   submitter: Submitter;
   information: string;
@@ -69,6 +70,7 @@ export interface Comment {
   id: number;
   name: string;
   content: string;
+  contentHtml: string;
   image: string;
   timestamp: string;
   timestampUnix: number;
@@ -147,7 +149,7 @@ export interface ErrorBody {
   status: number;
 }
 
-export type ErrorStatus = 400 | 404 | 502 | 503;
+export type ErrorStatus = 400 | 404 | 429 | 502 | 503;
 
 export class HttpError extends Error {
   status: ErrorStatus;

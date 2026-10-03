@@ -1,24 +1,8 @@
 import { Context } from "hono";
 import { Constants } from "./constants.ts";
-import { openApiSpec } from "./openapi.ts";
+import { openApiSpec, renderDocs } from "./openapi.ts";
 import * as Scrapers from "./scrapers.ts";
 import * as Utils from "./utils.ts";
-
-const DOCS_HTML = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Kiyoko API</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
-</head>
-<body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-  <script>
-    window.ui = SwaggerUIBundle({ url: "/openapi.json", dom_id: "#swagger-ui" });
-  </script>
-</body>
-</html>`;
 
 function listingQuery(
   c: Context,
@@ -48,11 +32,15 @@ export class Handlers {
       mirrors,
     };
     c.header("Cache-Control", "no-store");
+    if (!ok) {
+      c.header("Retry-After", String(Constants.UpstreamRetrySeconds));
+      console.error(JSON.stringify({ level: "error", status: 503, message: "all mirrors failed" }));
+    }
     return c.json(body, ok ? 200 : 503);
   };
 
   static Docs = function (c: Context) {
-    return c.html(DOCS_HTML);
+    return c.html(renderDocs(openApiSpec));
   };
 
   static OpenApi = function (c: Context) {
@@ -155,21 +143,19 @@ export class Handlers {
         return Utils.jsonError(c, 400, "Invalid ID");
       }
 
-      const results = await Promise.all(
-        ids.map(async (id) => {
-          try {
-            const data = await Scrapers.loadFileInfo(`/view/${id}`);
-            return { id: Number(id), ok: true as const, data };
-          } catch (error) {
-            return {
-              id: Number(id),
-              ok: false as const,
-              error: Utils.errorMessage(error),
-              status: Utils.errorStatus(error),
-            };
-          }
-        })
-      );
+      const results = await Utils.mapPool(ids, Constants.MaxBatchConcurrency, async (id) => {
+        try {
+          const data = await Scrapers.loadFileInfo(`/view/${id}`);
+          return { id: Number(id), ok: true as const, data };
+        } catch (error) {
+          return {
+            id: Number(id),
+            ok: false as const,
+            error: Utils.errorMessage(error),
+            status: Utils.errorStatus(error),
+          };
+        }
+      });
 
       Utils.setCache(c, Constants.DetailCacheSeconds);
       return c.json({ results });
@@ -235,4 +221,4 @@ export class Handlers {
   };
 }
 
-export { DOCS_HTML };
+

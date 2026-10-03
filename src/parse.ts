@@ -15,6 +15,7 @@ import {
   extractCategoryId,
   extractInfoHash,
   extractViewId,
+  formatSize,
   parseMagnet,
   parseSizeBytes,
   resolveUrl,
@@ -193,9 +194,10 @@ export function parsePagination(
   const activePage = toCount(activeText);
   const page = activePage > 0 ? activePage : requestedPage > 0 ? requestedPage : 1;
 
-  const nextEnabled = $("ul.pagination li.next").not(".disabled").length > 0;
+  const pager = $("ul.pagination");
+  const nextEnabled = pager.find("li.next").not(".disabled").length > 0;
   let laterPage = false;
-  $("ul.pagination a[href]").each((_, el) => {
+  pager.find("a[href]").each((_, el) => {
     const href = $(el).attr("href") ?? "";
     const value = extractQueryNumber(href, "p");
     if (value > page) {
@@ -203,8 +205,9 @@ export function parsePagination(
     }
   });
 
+  // A full last page still has 75 rows. Trust the pager when Sukebei rendered one.
   const hasNext =
-    itemCount === 0 ? false : nextEnabled || laterPage || itemCount >= perPage;
+    itemCount === 0 ? false : pager.length > 0 ? nextEnabled || laterPage : itemCount >= perPage;
 
   let total: number | null = null;
   const boldTotal = html.match(/of\s+<b>([\d,]+)<\/b>/i);
@@ -238,13 +241,7 @@ export function parseUserProfile(
   }).first();
 
   if (!heading.length) {
-    return {
-      username,
-      url: `${origin}/user/${encodeURIComponent(username)}`,
-      level: "",
-      trusted: false,
-      uploadCount: null,
-    };
+    return null;
   }
 
   const span = heading.find("span").first();
@@ -313,6 +310,42 @@ function parseFileItems($: CheerioRoot, list: CheerioSelection): FileTreeNode[] 
     });
   });
 
+  return nodes;
+}
+
+function insertPath(nodes: FileTreeNode[], parts: string[], sizeBytes: number): void {
+  if (parts.length === 0) {
+    return;
+  }
+
+  if (parts.length === 1) {
+    nodes.push({
+      type: "file",
+      name: parts[0] ?? "",
+      size: formatSize(sizeBytes),
+      sizeBytes,
+    });
+    return;
+  }
+
+  const name = parts[0] ?? "";
+  let folder = nodes.find((node) => node.type === "folder" && node.name === name);
+  if (!folder || folder.type !== "folder") {
+    const created: FileTreeNode = { type: "folder", name, children: [] };
+    nodes.push(created);
+    folder = created;
+  }
+
+  if (folder.type === "folder") {
+    insertPath(folder.children, parts.slice(1), sizeBytes);
+  }
+}
+
+export function treeFromPaths(entries: { path: string[]; sizeBytes: number }[]): FileTreeNode[] {
+  const nodes: FileTreeNode[] = [];
+  for (const entry of entries) {
+    insertPath(nodes, entry.path, entry.sizeBytes);
+  }
   return nodes;
 }
 
@@ -412,6 +445,50 @@ function parseInformation(
   return text;
 }
 
+export function sanitizeHtml(html: string): string {
+  if (!html) {
+    return "";
+  }
+
+  const $ = cheerio.load(`<div id="kiyoko-root">${html}</div>`);
+  const root = $("#kiyoko-root");
+  root.find("script, style, iframe, object, embed, link, meta, base, svg, math").remove();
+  root.find("*").each((_, element) => {
+    const node = $(element);
+    const attribs = node.attr() ?? {};
+    for (const name of Object.keys(attribs)) {
+      const lower = name.toLowerCase();
+      const value = attribs[name] ?? "";
+      if (lower.startsWith("on") || lower === "srcdoc") {
+        node.removeAttr(name);
+        continue;
+      }
+      if ((lower === "href" || lower === "src") && /^\s*javascript:/i.test(value)) {
+        node.removeAttr(name);
+      }
+    }
+  });
+  return root.html() ?? "";
+}
+
+function readableText(node: CheerioSelection): string {
+  const html = node.html() ?? "";
+  if (!html && node.length === 0) {
+    return "";
+  }
+
+  const $ = cheerio.load(`<div id="kiyoko-text">${html}</div>`);
+  const root = $("#kiyoko-text");
+  root.find("script, style, iframe, object, embed, svg, math").remove();
+  root.find("br").replaceWith("\n");
+  root.find("p, li, div, tr, h1, h2, h3, h4").append("\n");
+  return root
+    .text()
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function parseComments($: CheerioRoot, container: CheerioSelection, origin: string): Comment[] {
   const comments: Comment[] = [];
 
@@ -424,11 +501,13 @@ function parseComments($: CheerioRoot, container: CheerioSelection, origin: stri
     const idAttr = panel.attr("id") ?? "";
     const parsedId = toCount(idAttr.replace(/^com-/i, ""));
     const userParagraph = element.find("p").first().text();
+    const contentNode = element.find("div.comment-content").first();
 
     comments.push({
       id: parsedId || index + 1,
       name: userLink.text().trim() || element.find("a").first().text().trim(),
-      content: element.find("div.comment-content").text(),
+      content: readableText(contentNode),
+      contentHtml: sanitizeHtml(contentNode.html() ?? ""),
       image: resolveUrl(origin, avatar || "/static/img/avatar/default.png"),
       timestamp: timestampEl.text().trim(),
       timestampUnix: parseUnix(timestampEl.attr("data-timestamp")),
@@ -499,6 +578,7 @@ export function parseFileInfo(
   const submitter = parseSubmitter($, container, origin);
   const fileList = parseFileList($, container);
   const flags = panelFlags(container);
+  const descriptionNode = container.find("div.panel-body#torrent-description").first();
 
   const torrentData = torrentFromParts({
     title,
@@ -521,7 +601,8 @@ export function parseFileInfo(
 
   return {
     torrent: torrentData,
-    description: container.find("div.panel-body#torrent-description").text(),
+    description: readableText(descriptionNode),
+    descriptionHtml: sanitizeHtml(descriptionNode.html() ?? ""),
     submittedBy: submitter.name,
     submitter,
     information: parseInformation($, container, origin),
@@ -593,9 +674,13 @@ export function parseRss(xml: string, origin: string): Torrent[] {
     const magnet = link.startsWith("magnet:")
       ? link
       : infoHash
-        ? `magnet:?xt=urn:btih:${infoHash}`
+        ? `magnet:?xt=urn:btih:${infoHash}${title ? `&dn=${encodeURIComponent(title)}` : ""}`
         : "";
-    const file = /^https?:/i.test(link) && /\/download\//.test(link) ? link : "";
+    const file = id
+      ? `${origin}/download/${id}.torrent`
+      : /^https?:/i.test(link) && /\/download\//.test(link)
+        ? link
+        : "";
     const pubDate = item.find("pubDate").first().text().trim();
     const uploadedTimestamp = pubDate ? Math.floor(Date.parse(pubDate) / 1000) || 0 : 0;
 

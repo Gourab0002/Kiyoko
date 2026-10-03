@@ -4,5 +4,16 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 main = "src/index.ts"
 
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [dev]
 port = 3000
+
+# namespace_id must stay unique across this Cloudflare account.
+# 60 requests per 60 seconds, enforced per location and per limiter key.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "51003"
+simple = { limit = 60, period = 60 }

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { torrentEntries } from "../src/bencode.ts";
+import { Constants } from "../src/constants.ts";
+import { HttpError } from "../src/models.ts";
 import {
   flattenFileTree,
   parseFileInfo,
@@ -8,12 +11,14 @@ import {
   parseRss,
   parseTorrentList,
   parseUserProfile,
+  treeFromPaths,
 } from "../src/scrapers.ts";
 import {
   buildSearchQuery,
   extractCategoryId,
   extractInfoHash,
   extractViewId,
+  formatSize,
   getCategoryID,
   getSearchParameters,
   isKnownCategory,
@@ -21,11 +26,13 @@ import {
   isValidId,
   isValidInfoHash,
   isValidUsername,
+  normalizeInfoHash,
   parseIdList,
   parseMagnet,
   parseSizeBytes,
   resolveCategoryParam,
   resolveUrl,
+  timeoutForAttempt,
   toCount,
   wantsEnvelope,
 } from "../src/utils.ts";
@@ -300,6 +307,17 @@ test("parsePagination treats a short last page as terminal", () => {
   assert.equal(pagination.hasNext, false);
 });
 
+test("parsePagination trusts a disabled next control on a full page", () => {
+  const html = `<ul class="pagination"><li class="active"><a>2</a></li><li class="next disabled"><a>Next</a></li></ul>`;
+  const pagination = parsePagination(html, 75, 2);
+  assert.equal(pagination.hasNext, false);
+});
+
+test("parsePagination guesses a next page when the pager is missing", () => {
+  const pagination = parsePagination("<table></table>", 75, 1);
+  assert.equal(pagination.hasNext, true);
+});
+
 test("parseFileInfo reads labeled fields, hash, files, and comments", () => {
   const file = parseFileInfo(VIEW_HTML, "https://sukebei.nyaa.mom", 4123450);
 
@@ -375,8 +393,12 @@ test("parseRss maps namespaced nyaa fields", () => {
   assert.equal(torrents[0].file, "https://sukebei.nyaa.mom/download/4123450.torrent");
   assert.equal(
     torrents[0].magnet,
-    "magnet:?xt=urn:btih:e386a18cbd5525b5515a3b118e365033ec190465"
+    "magnet:?xt=urn:btih:e386a18cbd5525b5515a3b118e365033ec190465&dn=Commented%20Torrent"
   );
+});
+
+test("parseUserProfile returns null when the user heading is missing", () => {
+  assert.equal(parseUserProfile("<html><body>nope</body></html>", "https://sukebei.nyaa.si", "ghost"), null);
 });
 
 test("parseUserProfile reads trusted heading and upload count", () => {
@@ -409,6 +431,8 @@ test("category helpers accept Sukebei art and real_life paths", () => {
 
 test("validation helpers reject unsafe ids and usernames", () => {
   assert.equal(isValidId("4123450"), true);
+  assert.equal(isValidId("1234567890"), true);
+  assert.equal(isValidId("12345678901"), false);
   assert.equal(isValidId("../etc"), false);
   assert.equal(isValidId("12abc"), false);
   assert.equal(isValidUsername("uploader"), true);
@@ -508,9 +532,91 @@ test("url, magnet, size, and number helpers", () => {
   assert.equal(extractInfoHash("magnet:?xt=urn:btih:abc123&dn=x"), "abc123");
   assert.equal(parseSizeBytes("1.3 GiB"), Math.round(1.3 * 1024 ** 3));
   assert.equal(parseSizeBytes("12.0 MiB"), Math.round(12 * 1024 ** 2));
+  assert.equal(formatSize(2), "2 B");
+  assert.equal(formatSize(1536), "1.5 KiB");
+  assert.equal(normalizeInfoHash("A".repeat(32)), "0".repeat(40));
+  assert.equal(timeoutForAttempt(0), Constants.PrimaryTimeoutMs);
+  assert.equal(timeoutForAttempt(1), Constants.FetchTimeoutMs);
   assert.deepEqual(parseMagnet("magnet:?xt=urn:btih:abc&dn=n&tr=udp://a&tr=udp://b"), {
     infoHash: "abc",
     name: "n",
     trackers: ["udp://a", "udp://b"],
   });
+});
+
+test("getSearchParameters rejects unknown sort, order, filter, page, and long queries", () => {
+  const context = (values: Record<string, string>) =>
+    ({ req: { query: (key: string) => values[key] } }) as never;
+
+  assert.throws(() => getSearchParameters(context({ s: "nope" })), (error: unknown) => {
+    return error instanceof HttpError && error.status === 400 && error.message === "Invalid sort";
+  });
+  assert.throws(() => getSearchParameters(context({ o: "sideways" })), (error: unknown) => {
+    return error instanceof HttpError && error.message === "Invalid order";
+  });
+  assert.throws(() => getSearchParameters(context({ f: "9" })), (error: unknown) => {
+    return error instanceof HttpError && error.message === "Invalid filter";
+  });
+  assert.throws(() => getSearchParameters(context({ p: "1001" })), (error: unknown) => {
+    return error instanceof HttpError && error.message === "Invalid page";
+  });
+  assert.throws(() => getSearchParameters(context({ q: "a".repeat(201) })), (error: unknown) => {
+    return error instanceof HttpError && error.message === "Query too long";
+  });
+
+  const params = getSearchParameters(context({ exclude: "spam", s: "Seeders" }));
+  assert.equal(params.exclude, "spam");
+  assert.equal(params.sort, "seeders");
+});
+
+test("parseFileInfo keeps description line breaks and strips active HTML", () => {
+  const html = `
+<body><div class="container">
+  <div class="panel"><div class="panel-heading"><h3 class="panel-title">T</h3></div></div>
+  <div id="torrent-description" class="panel-body">Line one<br>Line two<script>alert(1)</script> <a href="javascript:alert(1)" onclick="nope()">x</a></div>
+  <div id="comments">
+    <div class="comment-panel" id="com-4">
+      <div class="panel-body">
+        <div class="comment-content">Thanks<br>again</div>
+      </div>
+    </div>
+  </div>
+</div></body>`;
+  const file = parseFileInfo(html, "https://sukebei.nyaa.si", 4);
+  assert.ok(file);
+  assert.equal(file.description.includes("Line one\nLine two"), true);
+  assert.equal(file.description.includes("alert"), false);
+  assert.equal(file.descriptionHtml.includes("<script"), false);
+  assert.equal(file.descriptionHtml.includes("javascript:"), false);
+  assert.equal(file.descriptionHtml.includes("onclick"), false);
+  assert.equal(file.descriptionHtml.includes(">x<") || file.descriptionHtml.includes(">x</a>"), true);
+  assert.equal(file.commentInfo.comments[0].content, "Thanks\nagain");
+  assert.equal(file.commentInfo.comments[0].contentHtml.includes("<br"), true);
+});
+
+test("parseRss keeps a download url when the link is a magnet", () => {
+  const xml = `<?xml version="1.0"?><rss><channel><item>
+    <title>Example</title>
+    <link>magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&amp;tr=udp://tracker.example/announce</link>
+    <guid>https://sukebei.nyaa.si/view/9</guid>
+    <nyaa:infoHash xmlns:nyaa="https://sukebei.nyaa.si/xmlns/nyaa">aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</nyaa:infoHash>
+  </item></channel></rss>`;
+  const torrents = parseRss(xml, "https://sukebei.nyaa.si");
+  assert.equal(torrents[0].file, "https://sukebei.nyaa.si/download/9.torrent");
+  assert.equal(
+    torrents[0].magnet,
+    "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&tr=udp://tracker.example/announce"
+  );
+});
+
+test("torrent entries become a file tree", () => {
+  const pieces = "a".repeat(20);
+  const body = `d4:infod5:filesld6:lengthi2e4:pathl5:b.cbzeee4:name7:Example12:piece lengthi16384e6:pieces20:${pieces}ee`;
+  const entries = torrentEntries(new TextEncoder().encode(body));
+  assert.ok(entries);
+  assert.deepEqual(entries[0].path, ["Example", "b.cbz"]);
+  const tree = treeFromPaths(entries);
+  const files = flattenFileTree(tree);
+  assert.equal(files[0].path, "Example/b.cbz");
+  assert.equal(files[0].sizeBytes, 2);
 });
